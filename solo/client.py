@@ -9,6 +9,7 @@
 
 import base64
 import json
+import os
 import struct
 import sys
 import tempfile
@@ -22,6 +23,7 @@ from fido2.ctap import CtapError
 from fido2.ctap1 import CTAP1
 from fido2.ctap2 import CTAP2, CredentialManagement
 from fido2.hid import CTAPHID, CtapHidDevice
+from fido2.hid.base import HidDescriptor
 from fido2.utils import hmac_sha256
 from fido2.webauthn import PublicKeyCredentialCreationOptions
 from intelhex import IntelHex
@@ -29,6 +31,34 @@ from intelhex import IntelHex
 import solo.exceptions
 from solo import helpers
 from solo.commands import SoloBootloader, SoloExtension
+
+
+class SoloDescriptor(HidDescriptor):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.serial_number = None
+        self.product_string = None
+
+        if sys.platform.startswith("linux"):
+            hidraw = os.path.basename(self.path)
+            uevent_path = os.path.join("/sys/class/hidraw", hidraw, "device/uevent")
+            with open(uevent_path, "rb") as uevent_file:
+                for line in uevent_file.read().split(b"\n"):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    k, v = line.split(b"=")
+                    if k == b"HID_UNIQ":
+                        self.serial_number = v.decode("utf8")
+                    elif k == b"HID_NAME":
+                        self.product_string = v.decode("utf8")
+                    if None not in (self.serial_number, self.product_string):
+                        break
+
+
+def solo_desc(dev):
+    dev.descriptor = SoloDescriptor(*dev.descriptor)
+    return dev
 
 
 def find(solo_serial=None, retries=5, raw_device=None, udp=False):
@@ -54,15 +84,14 @@ def find(solo_serial=None, retries=5, raw_device=None, udp=False):
 
 
 def find_all():
-    hid_devices = list(CtapHidDevice.list_devices())
+    hid_devices = list(map(solo_desc, CtapHidDevice.list_devices()))
     solo_devices = [
         d
         for d in hid_devices
         if all(
             (
-                d.descriptor["vendor_id"] == 1155,
-                d.descriptor["product_id"] == 41674,
-                # "Solo" in d.descriptor["product_string"],
+                d.descriptor.vid == 1155,
+                d.descriptor.pid == 41674,
             )
         )
     ]
@@ -96,10 +125,10 @@ class SoloClient:
 
     def find_device(self, dev=None, solo_serial=None):
         if dev is None:
-            devices = list(CtapHidDevice.list_devices())
+            devices = list(map(solo_desc, CtapHidDevice.list_devices()))
             if solo_serial is not None:
                 devices = [
-                    d for d in devices if d.descriptor["serial_number"] == solo_serial
+                    d for d in devices if d.descriptor.serial_number == solo_serial
                 ]
             if len(devices) > 1:
                 raise solo.exceptions.NonUniqueDeviceError

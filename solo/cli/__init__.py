@@ -18,7 +18,7 @@ from solo.cli.key import key
 from solo.cli.monitor import monitor
 from solo.cli.program import program
 
-from . import _patches  # noqa  (since otherwise "unused")
+# from . import _patches  # noqa  (since otherwise "unused")
 from ._checks import init_checks
 
 init_checks()
@@ -137,10 +137,10 @@ def ls(all):
     print(":: Solos")
     for c in solos:
         descriptor = c.dev.descriptor
-        if "serial_number" in descriptor:
-            print(f"{descriptor['serial_number']}: {descriptor['product_string']}")
+        if descriptor.serial_number:
+            print(f"{descriptor.serial_number}: {descriptor.product_string}")
         else:
-            print(f"{descriptor['path']}: {descriptor['product_string']}")
+            print(f"{descriptor.path}: {descriptor.product_string}")
 
     if all:
         print(":: Potential Solos in DFU mode")
